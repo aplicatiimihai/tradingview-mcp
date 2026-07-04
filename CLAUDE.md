@@ -97,6 +97,19 @@ These tools can return large payloads. Follow these rules to avoid context bloat
 7. **Call `chart_get_state` once** at the start to get entity IDs, then reference them — don't re-call repeatedly
 8. **Cap your OHLCV requests** — `count: 20` for quick analysis, `count: 100` for deeper work, `count: 500` only when specifically needed
 
+## Safety & Confirmation Rules
+
+1. **Never execute `replay_trade`** (buy/sell/close) without explicit user
+   confirmation in the current turn — even in replay/simulation mode.
+2. **Never call `alert_create`, `chart_manage_indicator` (remove), or
+   `draw_clear`** without confirming the specific action with the user first.
+3. **Do not extract or display account/credential data.** Only read
+   chart-level data (symbol, indicators, price, volume, drawings).
+4. **Verify CDP is bound to `localhost` only** before starting a session —
+   flag it to the user if port 9222 appears exposed beyond localhost.
+5. **Analysis output is descriptive, not advisory** — report what
+   indicators/levels show; do not phrase output as a trade recommendation.
+
 ### Output Size Estimates (compact mode)
 | Tool | Typical Output |
 |------|---------------|

@@ -1,21 +1,14 @@
 # Setup Guide for Claude Code
-
 This file is a step-by-step guide for Claude Code (or any LLM agent) to install and configure the TradingView MCP server. If a user asks you to install or set up this project, follow these steps exactly.
-
 ## Step 1: Clone and Install
-
 ```bash
 git clone https://github.com/tradesdontlie/tradingview-mcp.git ~/tradingview-mcp
 cd ~/tradingview-mcp
 npm install
 ```
-
 If the user specifies a different install path, use that instead of `~/tradingview-mcp`.
-
 ## Step 2: Add to MCP Config
-
 Add the server to the user's Claude Code MCP configuration. The config file is at `~/.claude/.mcp.json` (global) or `.mcp.json` (project-level).
-
 ```json
 {
   "mcpServers": {
@@ -26,48 +19,33 @@ Add the server to the user's Claude Code MCP configuration. The config file is a
   }
 }
 ```
-
 Replace `<INSTALL_PATH>` with the actual path where the repo was cloned (e.g., `/Users/username/tradingview-mcp`).
-
 If the config file already exists and has other servers, merge the `tradingview` entry into the existing `mcpServers` object. Do not overwrite other servers.
-
 ## Step 3: Launch TradingView Desktop
-
 TradingView Desktop must be running with Chrome DevTools Protocol enabled.
-
 **Auto-detect and launch (recommended):**
 After the MCP server is connected, use the `tv_launch` tool — it auto-detects TradingView on Mac, Windows, and Linux.
-
 **Manual launch by platform:**
-
 Mac:
 ```bash
 /Applications/TradingView.app/Contents/MacOS/TradingView --remote-debugging-port=9222
 ```
-
 Windows:
 ```bash
 %LOCALAPPDATA%\TradingView\TradingView.exe --remote-debugging-port=9222
 ```
-
 Linux:
 ```bash
 /opt/TradingView/tradingview --remote-debugging-port=9222
 # or: tradingview --remote-debugging-port=9222
 ```
-
 ## Step 4: Restart Claude Code
-
 The MCP server only loads when Claude Code starts. After adding the config:
-
 1. Exit Claude Code (Ctrl+C)
 2. Relaunch Claude Code
 3. The tradingview MCP server should connect automatically
-
 ## Step 5: Verify Connection
-
 Use the `tv_health_check` tool. Expected response:
-
 ```json
 {
   "success": true,
@@ -76,22 +54,36 @@ Use the `tv_health_check` tool. Expected response:
   "api_available": true
 }
 ```
-
 If `cdp_connected: false`, TradingView is not running with `--remote-debugging-port=9222`.
 
+## Step 5a: Security Check (run at the start of every session)
+Before doing any chart work, verify that the CDP port is bound to localhost
+only, never exposed to the network.
+
+Windows (PowerShell):
+```powershell
+netstat -ano | findstr :9222
+```
+Mac/Linux:
+```bash
+lsof -i :9222
+```
+
+**Safe result:** `127.0.0.1:9222 ... LISTENING` — bound to localhost only.
+
+**Warning sign — stop and investigate:** `0.0.0.0:9222 ... LISTENING` — the
+port is reachable from the network, not just this machine. Do not proceed
+with chart work until this is fixed; close TradingView Desktop and check
+how it was launched.
+
 ## Step 6: Install CLI (Optional)
-
 To use the `tv` CLI command globally:
-
 ```bash
 cd ~/tradingview-mcp
 npm link
 ```
-
 Then `tv status`, `tv quote`, `tv pine compile`, etc. work from anywhere.
-
 ## Troubleshooting
-
 | Problem | Solution |
 |---------|----------|
 | `cdp_connected: false` | Launch TradingView with `--remote-debugging-port=9222` |
@@ -100,9 +92,8 @@ Then `tv status`, `tv quote`, `tv pine compile`, etc. work from anywhere.
 | `tv` command not found | Run `npm link` from the project directory |
 | Tools return stale data | TradingView may still be loading — wait a few seconds |
 | Pine Editor tools fail | Open the Pine Editor panel first (`ui_open_panel pine-editor open`) |
-
+| `netstat`/`lsof` shows `0.0.0.0:9222` | Port exposed to network — stop and reconfigure launch command |
 ## What to Read Next
-
 - `CLAUDE.md` — Decision tree for which tool to use when (auto-loaded by Claude Code)
 - `README.md` — Full tool reference (78 MCP tools, 30 CLI commands)
 - `RESEARCH.md` — Research context and open questions
