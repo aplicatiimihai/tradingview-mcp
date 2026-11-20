@@ -89,18 +89,52 @@ export async function manageIndicator({ action, indicator, entity_id, inputs: in
   const inputs = inputsRaw ? (typeof inputsRaw === 'string' ? JSON.parse(inputsRaw) : inputsRaw) : undefined;
 
   if (action === 'add') {
-    const inputArr = inputs ? Object.entries(inputs).map(([k, v]) => ({ id: k, value: v })) : [];
+    // Create the study WITHOUT inputs (passing inputs to createStudy fails silently),
+    // then apply inputs on the new study via getInputValues/setInputValues.
     const before = await evaluate(`${CHART_API}.getAllStudies().map(function(s) { return s.id; })`);
     await evaluate(`
       (function() {
         var chart = ${CHART_API};
-        chart.createStudy(${safeString(indicator)}, false, false, ${JSON.stringify(inputArr)});
+        chart.createStudy(${safeString(indicator)}, false, false);
       })()
     `);
     await new Promise(r => setTimeout(r, 1500));
     const after = await evaluate(`${CHART_API}.getAllStudies().map(function(s) { return s.id; })`);
     const newIds = (after || []).filter(id => !(before || []).includes(id));
-    return { success: newIds.length > 0, action: 'add', indicator, entity_id: newIds[0] || null, new_study_count: newIds.length };
+    if (newIds.length === 0) {
+      return {
+        success: false, action: 'add', indicator, entity_id: null, new_study_count: 0,
+        studies_on_chart: (after || []).length,
+        hint: 'Indicator not created. Check the exact full name (e.g. "Moving Average Exponential") or the indicator-per-chart limit of your TradingView plan (' + (after || []).length + ' studies on chart).',
+      };
+    }
+    const newId = newIds[0];
+    let updated_inputs;
+    if (inputs && typeof inputs === 'object' && Object.keys(inputs).length > 0) {
+      const res = await evaluate(`
+        (function() {
+          var chart = ${CHART_API};
+          var study = chart.getStudyById(${safeString(newId)});
+          if (!study) return { error: 'Study not found after creation' };
+          var current = study.getInputValues();
+          var overrides = ${JSON.stringify(inputs)};
+          var updated = {};
+          for (var i = 0; i < current.length; i++) {
+            if (Object.prototype.hasOwnProperty.call(overrides, current[i].id)) {
+              current[i].value = overrides[current[i].id];
+              updated[current[i].id] = overrides[current[i].id];
+            }
+          }
+          study.setInputValues(current);
+          return { updated: updated };
+        })()
+      `);
+      if (res && res.error) {
+        return { success: true, action: 'add', indicator, entity_id: newId, new_study_count: newIds.length, inputs_error: res.error };
+      }
+      updated_inputs = res?.updated;
+    }
+    return { success: true, action: 'add', indicator, entity_id: newId, new_study_count: newIds.length, ...(updated_inputs ? { updated_inputs } : {}) };
   } else if (action === 'remove') {
     if (!entity_id) throw new Error('entity_id required for remove action. Use chart_get_state to find study IDs.');
     await evaluate(`

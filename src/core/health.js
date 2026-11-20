@@ -197,6 +197,21 @@ export async function launch({ port, kill_existing } = {}) {
     } catch { /* ignore */ }
   }
 
+  // Windows MSIX / Microsoft Store install (C:\\Program Files\\WindowsApps\\TradingView.Desktop_*)
+  if (!tvPath && platform === 'win32') {
+    try {
+      const loc = execSync(
+        'powershell -NoProfile -Command "(Get-AppxPackage *TradingView* | Select-Object -First 1).InstallLocation"',
+        { timeout: 8000 }
+      ).toString().trim();
+      if (loc) {
+        // existsSync may return false inside WindowsApps (restricted ACLs) even though
+        // the binary can be launched, so trust the Appx InstallLocation.
+        tvPath = `${loc}\\TradingView.exe`;
+      }
+    } catch { /* ignore */ }
+  }
+
   if (!tvPath && platform === 'darwin') {
     try {
       const found = execSync('mdfind "kMDItemFSName == TradingView.app" | head -1', { timeout: 5000 }).toString().trim();
@@ -235,10 +250,19 @@ export async function launch({ port, kill_existing } = {}) {
       });
       if (ready) {
         const info = JSON.parse(ready);
+        // Wait for the chart tab, so the next tool call attaches to the chart and not to an internal window
+        let chartTarget = null;
+        try {
+          const { waitForChartTarget, disconnect } = await import('../connection.js');
+          chartTarget = await waitForChartTarget(30000);
+          await disconnect(); // force a fresh attach to the chart on the next call
+        } catch { /* ignore */ }
         return {
           success: true, platform, binary: tvPath, pid: child.pid,
           cdp_port: cdpPort, cdp_url: `http://localhost:${cdpPort}`,
           browser: info.Browser, user_agent: info['User-Agent'],
+          chart_ready: !!chartTarget,
+          ...(chartTarget ? {} : { warning: 'CDP is up but no chart tab was found within 30s. Open a chart, then run tv_health_check.' }),
         };
       }
     } catch { /* retry */ }

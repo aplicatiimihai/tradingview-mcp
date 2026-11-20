@@ -2,6 +2,7 @@
  * Core data access logic.
  */
 import { evaluate, evaluateAsync, KNOWN_PATHS, safeString } from '../connection.js';
+import { setSymbol as _setSymbol } from './chart.js';
 
 const MAX_OHLCV_BARS = 500;
 const MAX_TRADES = 20;
@@ -242,7 +243,37 @@ export async function getEquity() {
   return { success: true, data_points: equity?.data?.length || 0, source: equity?.source, data: equity?.data || [], equity_summary: equity?.equity_summary, note: equity?.note, error: equity?.error };
 }
 
+export function _symbolMatches(current, requested) {
+  const c = String(current || '').toUpperCase();
+  const r = String(requested || '').toUpperCase();
+  if (!r) return true;
+  if (c === r) return true;
+  // "NVDA" matches "NASDAQ:NVDA"; "NASDAQ:NVDA" matches "NVDA" only if exchanges are not given on both sides
+  const cBase = c.includes(':') ? c.split(':').pop() : c;
+  const rBase = r.includes(':') ? r.split(':').pop() : r;
+  if (!r.includes(':')) return cBase === rBase;
+  return false;
+}
+
 export async function getQuote({ symbol } = {}) {
+  // If a symbol is requested that is not on the active chart, switch temporarily,
+  // read the quote, then restore the original symbol.
+  if (symbol) {
+    const current = await evaluate(`${CHART_API}.symbol()`);
+    if (!_symbolMatches(current, symbol)) {
+      await _setSymbol({ symbol });
+      try {
+        const q = await _readQuote({});
+        return { ...q, requested_symbol: symbol, switched_chart: true, restored_symbol: current };
+      } finally {
+        if (current) await _setSymbol({ symbol: current });
+      }
+    }
+  }
+  return _readQuote({ symbol });
+}
+
+async function _readQuote({ symbol } = {}) {
   const data = await evaluate(`
     (function() {
       var api = ${CHART_API};

@@ -52,6 +52,17 @@ export async function getClient() {
     try {
       // Quick liveness check
       await client.Runtime.evaluate({ expression: '1', returnByValue: true });
+      // If we are attached to a non-chart page (e.g. connected while the chart tab was still
+      // loading), switch to the chart tab as soon as it exists.
+      if (!isChartTarget(targetInfo)) {
+        try {
+          const chart = selectTarget(await listTargets());
+          if (chart && isChartTarget(chart)) {
+            await disconnect();
+            return connect();
+          }
+        } catch { /* keep current client */ }
+      }
       return client;
     } catch {
       client = null;
@@ -87,13 +98,42 @@ export async function connect() {
   throw new Error(`CDP connection failed after ${MAX_RETRIES} attempts: ${lastError?.message}`);
 }
 
-async function findChartTarget() {
+async function listTargets() {
   const resp = await fetch(`http://${CDP_HOST}:${CDP_PORT}/json/list`);
-  const targets = await resp.json();
-  // Prefer targets with tradingview.com/chart in the URL
-  return targets.find(t => t.type === 'page' && /tradingview\.com\/chart/i.test(t.url))
-    || targets.find(t => t.type === 'page' && /tradingview/i.test(t.url))
+  return resp.json();
+}
+
+/** True if the CDP target is a TradingView chart page. */
+export function isChartTarget(t) {
+  return !!t && t.type === 'page' && /tradingview\.com\/chart/i.test(t.url || '');
+}
+
+/**
+ * Pick the best CDP target: a chart page first; otherwise a real tradingview web page
+ * (http/https). Internal app windows (file:///...app.asar/... tooltips, menus) are never used.
+ */
+export function selectTarget(targets) {
+  const list = Array.isArray(targets) ? targets : [];
+  return list.find(isChartTarget)
+    || list.find(t => t.type === 'page' && /^https?:\/\//i.test(t.url || '') && /tradingview/i.test(t.url || ''))
     || null;
+}
+
+async function findChartTarget() {
+  return selectTarget(await listTargets());
+}
+
+/** Wait until a chart target is available (used after launch). */
+export async function waitForChartTarget(timeoutMs = 30000) {
+  const start = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    try {
+      const t = selectTarget(await listTargets());
+      if (isChartTarget(t)) return t;
+    } catch { /* not ready */ }
+    await new Promise(r => setTimeout(r, 1000));
+  }
+  return null;
 }
 
 export async function getTargetInfo() {
